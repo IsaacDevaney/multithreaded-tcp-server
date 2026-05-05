@@ -1,0 +1,12 @@
+Starting load test...
+Clients: 500
+Requests per client: 100
+Target: 127.0.0.1:8080
+
+Load test complete
+Total requests completed: 50000
+Elapsed time: 3.38171 seconds
+Throughput: 14785.4 requests/sec
+Average latency: 2.8561 ms
+Minimum latency: 0.008821 ms
+Maximum latency: 1664.11 ms

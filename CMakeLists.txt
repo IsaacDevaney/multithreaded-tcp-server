@@ -54,3 +54,9 @@ gtest_discover_tests(kv_store_tests)
 # )
 #
 # gtest_discover_tests(protocol_tests)
+add_executable(load_client
+        benchmark/load_client.cpp
+)
+
+target_compile_options(load_client PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(load_client PRIVATE pthread)
