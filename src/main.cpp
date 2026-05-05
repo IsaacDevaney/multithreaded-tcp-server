@@ -5,13 +5,109 @@
 
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 using namespace std;
 
 unordered_map<string, string> store;
+mutex store_mutex;
+
+void handle_client(int client_fd) {
+    char buffer[1024];
+
+    while (true) {
+        ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes_read <= 0) {
+            break;
+        }
+
+        buffer[bytes_read] = '\0';
+        cout << "Received: " << buffer;
+
+        string line(buffer);
+        istringstream iss(line);
+
+        string command;
+        string key;
+        string value;
+        string response;
+
+        iss >> command;
+
+        if (command == "SET") {
+            iss >> key;
+            getline(iss >> ws, value);
+
+            if (key.empty() || value.empty()) {
+                response = "ERROR missing key or value\n";
+            } else {
+                lock_guard<mutex> lock(store_mutex);
+                store[key] = value;
+                response = "OK\n";
+            }
+        }
+        else if (command == "GET") {
+            iss >> key;
+
+            if (key.empty()) {
+                response = "ERROR missing key\n";
+            } else {
+                lock_guard<mutex> lock(store_mutex);
+
+                auto it = store.find(key);
+
+                if (it == store.end()) {
+                    response = "NOT_FOUND\n";
+                } else {
+                    response = "VALUE " + it->second + "\n";
+                }
+            }
+        }
+        else if (command == "DELETE") {
+            iss >> key;
+
+            if (key.empty()) {
+                response = "ERROR missing key\n";
+            } else {
+                lock_guard<mutex> lock(store_mutex);
+
+                if (store.erase(key) > 0) {
+                    response = "DELETED\n";
+                } else {
+                    response = "NOT_FOUND\n";
+                }
+            }
+        }
+        else if (command == "EXISTS") {
+            iss >> key;
+
+            if (key.empty()) {
+                response = "ERROR missing key\n";
+            } else {
+                lock_guard<mutex> lock(store_mutex);
+                response = store.count(key) ? "1\n" : "0\n";
+            }
+        }
+        else if (command == "QUIT") {
+            response = "BYE\n";
+            send(client_fd, response.c_str(), response.size(), 0);
+            break;
+        }
+        else {
+            response = "ERROR unknown command\n";
+        }
+
+        send(client_fd, response.c_str(), response.size(), 0);
+    }
+
+    close(client_fd);
+    cout << "Client disconnected\n";
+}
 
 int main(int argc, char* argv[]) {
     int port = 8080;
@@ -60,88 +156,8 @@ int main(int argc, char* argv[]) {
 
         cout << "Client connected\n";
 
-        char buffer[1024];
-
-        while (true) {
-            ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-
-            if (bytes_read <= 0) {
-                break;
-            }
-
-            buffer[bytes_read] = '\0';
-            cout << "Received: " << buffer;
-
-            string line(buffer);
-            istringstream iss(line);
-
-            string command;
-            string key;
-            string value;
-            string response;
-
-            iss >> command;
-
-            if (command == "SET") {
-                iss >> key;
-                getline(iss >> ws, value);
-
-                if (key.empty() || value.empty()) {
-                    response = "ERROR missing key or value\n";
-                } else {
-                    store[key] = value;
-                    response = "OK\n";
-                }
-            }
-            else if (command == "GET") {
-                iss >> key;
-
-                if (key.empty()) {
-                    response = "ERROR missing key\n";
-                } else {
-                    auto it = store.find(key);
-
-                    if (it == store.end()) {
-                        response = "NOT_FOUND\n";
-                    } else {
-                        response = "VALUE " + it->second + "\n";
-                    }
-                }
-            }
-            else if (command == "DELETE") {
-                iss >> key;
-
-                if (key.empty()) {
-                    response = "ERROR missing key\n";
-                } else if (store.erase(key) > 0) {
-                    response = "DELETED\n";
-                } else {
-                    response = "NOT_FOUND\n";
-                }
-            }
-            else if (command == "EXISTS") {
-                iss >> key;
-
-                if (key.empty()) {
-                    response = "ERROR missing key\n";
-                } else {
-                    response = store.count(key) ? "1\n" : "0\n";
-                }
-            }
-            else if (command == "QUIT") {
-                response = "BYE\n";
-                send(client_fd, response.c_str(), response.size(), 0);
-                break;
-            }
-            else {
-                response = "ERROR unknown command\n";
-            }
-
-            send(client_fd, response.c_str(), response.size(), 0);
-        }
-
-        close(client_fd);
-        cout << "Client disconnected\n";
+        thread client_thread(handle_client, client_fd);
+        client_thread.detach();
     }
 
     close(server_fd);
