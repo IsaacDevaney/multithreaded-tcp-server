@@ -140,10 +140,10 @@ void handle_client(int client_fd) {
 }
 
 void worker_loop(int worker_id) {
-    cout << "Worker " << worker_id << " started\n";
+    log_message("Worker " + to_string(worker_id) + " started");
 
     while (true) {
-        int client_fd;
+        int client_fd = -1;
 
         {
             unique_lock<mutex> lock(queue_mutex);
@@ -160,11 +160,11 @@ void worker_loop(int worker_id) {
             client_queue.pop();
         }
 
-        cout << "Worker " << worker_id << " handling client\n";
+        log_message("Worker " + to_string(worker_id) + " handling client");
         handle_client(client_fd);
     }
 
-    cout << "Worker " << worker_id << " stopped\n";
+    log_message("Worker " + to_string(worker_id) + " stopped");
 }
 
 int main(int argc, char* argv[]) {
@@ -233,7 +233,6 @@ int main(int argc, char* argv[]) {
             cerr << "accept() failed\n";
             continue;
         }
-
         cout << "Client accepted\n";
 
         {
@@ -243,7 +242,6 @@ int main(int argc, char* argv[]) {
 
         queue_cv.notify_one();
     }
-
     server_running = false;
     queue_cv.notify_all();
 
@@ -253,8 +251,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    close(server_fd);
-    cout << "Server stopped\n";
+    if (server_fd_global != -1) {
+        close(server_fd_global);
+        server_fd_global = -1;
+    }
 
+    log_message("Server stopped");
     return 0;
+
 }
