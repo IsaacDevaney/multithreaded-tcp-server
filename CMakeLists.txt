@@ -10,9 +10,11 @@ add_executable(kv_server
         src/thread_pool.cpp
         src/kv_store.cpp
         src/protocol.cpp
-        include/server.hpp
-        include/server.hpp
+        include/server.h
+        include/server.h
         src/main.cpp
+        src/client_handler.cpp
+        src/logger.cpp
 )
 
 target_include_directories(kv_server PRIVATE include)

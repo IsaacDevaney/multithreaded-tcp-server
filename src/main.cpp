@@ -1,39 +1,27 @@
+#include "logger.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
-#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <iostream>
 #include <mutex>
-#include <queue>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <unordered_map>
-#include <vector>
-#include <functional>
+
 #include "thread_pool.h"
+
 using namespace std;
 
 unordered_map<string, string> store;
 mutex store_mutex;
-mutex cout_mutex;
-
-queue<int> client_queue;
-mutex queue_mutex;
-condition_variable queue_cv;
 
 atomic<bool> server_running(true);
 int server_fd_global = -1;
-
-void log_message(const string& message) {
-    lock_guard<mutex> lock(cout_mutex);
-    cout << message << endl;
-}
 
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
@@ -42,8 +30,6 @@ void handle_signal(int signal) {
         if (server_fd_global != -1) {
             close(server_fd_global);
         }
-
-        queue_cv.notify_all();
     }
 }
 
@@ -58,7 +44,7 @@ void handle_client(int client_fd) {
         }
 
         buffer[bytes_read] = '\0';
-        cout << "Received: " << buffer;
+        log_message(string("Received: ") + buffer);
 
         string line(buffer);
         istringstream iss(line);
@@ -137,35 +123,7 @@ void handle_client(int client_fd) {
     }
 
     close(client_fd);
-    cout << "Client disconnected\n";
-}
-
-void worker_loop(int worker_id) {
-    log_message("Worker " + to_string(worker_id) + " started");
-
-    while (true) {
-        int client_fd = -1;
-
-        {
-            unique_lock<mutex> lock(queue_mutex);
-
-            queue_cv.wait(lock, [] {
-                return !client_queue.empty() || !server_running;
-            });
-
-            if (!server_running && client_queue.empty()) {
-                break;
-            }
-
-            client_fd = client_queue.front();
-            client_queue.pop();
-        }
-
-        log_message("Worker " + to_string(worker_id) + " handling client");
-        handle_client(client_fd);
-    }
-
-    log_message("Worker " + to_string(worker_id) + " stopped");
+    log_message("Client disconnected");
 }
 
 int main(int argc, char* argv[]) {
@@ -192,7 +150,11 @@ int main(int argc, char* argv[]) {
     }
 
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        cerr << "setsockopt() failed\n";
+        close(server_fd);
+        return 1;
+    }
 
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -200,57 +162,49 @@ int main(int argc, char* argv[]) {
     server_addr.sin_port = htons(port);
 
     if (bind(server_fd, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
-        cerr << "bind() failed\n";
+        cerr << "bind() failed: " << strerror(errno) << '\n';
         close(server_fd);
         return 1;
     }
 
     if (listen(server_fd, 10) < 0) {
-        cerr << "listen() failed\n";
+        cerr << "listen() failed: " << strerror(errno) << '\n';
         close(server_fd);
         return 1;
     }
 
-    vector<thread> workers;
+    ThreadPool pool(worker_count);
 
-    for (int i = 0; i < worker_count; ++i) {
-        workers.emplace_back(worker_loop, i + 1);
-    }
-
-    cout << "KV server listening on port " << port << " with "
-         << worker_count << " worker threads...\n";
+    log_message("KV server listening on port " + to_string(port) +
+                " with " + to_string(worker_count) + " worker threads...");
 
     while (server_running) {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
 
-        int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+        int client_fd = accept(
+            server_fd,
+            reinterpret_cast<sockaddr*>(&client_addr),
+            &client_len
+        );
 
         if (client_fd < 0) {
             if (!server_running) {
                 break;
             }
 
-            cerr << "accept() failed\n";
+            log_message(string("accept() failed: ") + strerror(errno));
             continue;
         }
-        cout << "Client accepted\n";
 
-        {
-            lock_guard<mutex> lock(queue_mutex);
-            client_queue.push(client_fd);
-        }
+        log_message("Client accepted");
 
-        queue_cv.notify_one();
+        pool.enqueue([client_fd] {
+            handle_client(client_fd);
+        });
     }
+
     server_running = false;
-    queue_cv.notify_all();
-
-    for (thread& worker : workers) {
-        if (worker.joinable()) {
-            worker.join();
-        }
-    }
 
     if (server_fd_global != -1) {
         close(server_fd_global);
@@ -259,5 +213,4 @@ int main(int argc, char* argv[]) {
 
     log_message("Server stopped");
     return 0;
-
 }
