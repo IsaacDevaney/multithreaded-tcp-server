@@ -1,36 +1,20 @@
 #include "client_handler.h"
-#include "logger.h"
 #include "kv_store.h"
+#include "logger.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
-#include <mutex>
 #include <sstream>
 #include <string>
-#include <unordered_map>
 
 using namespace std;
 
-
 extern atomic<bool> server_running;
 
-
-void handle_client(int client_fd) {
-    char buffer[1024];
-
-    while (server_running) {
-        ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-
-        if (bytes_read <= 0) {
-            break;
-        }
-
-        buffer[bytes_read] = '\0';
-        log_message(string("Received: ") + buffer);
-
-        string line(buffer);
+namespace {
+    string process_command(const string& line, bool& should_close) {
         istringstream iss(line);
 
         string command;
@@ -85,15 +69,58 @@ void handle_client(int client_fd) {
             }
         }
         else if (command == "QUIT") {
+            should_close = true;
             response = "BYE\n";
-            send(client_fd, response.c_str(), response.size(), 0);
-            break;
+        }
+        else if (command.empty()) {
+            response = "";
         }
         else {
             response = "ERROR unknown command\n";
         }
 
-        send(client_fd, response.c_str(), response.size(), 0);
+        return response;
+    }
+}
+
+void handle_client(int client_fd) {
+    char buffer[1024];
+    string pending_data;
+
+    while (server_running) {
+        ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer), 0);
+
+        if (bytes_read <= 0) {
+            break;
+        }
+
+        pending_data.append(buffer, bytes_read);
+
+        size_t newline_pos;
+
+        while ((newline_pos = pending_data.find('\n')) != string::npos) {
+            string line = pending_data.substr(0, newline_pos);
+            pending_data.erase(0, newline_pos + 1);
+
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            log_message("Received command: " + line);
+
+            bool should_close = false;
+            string response = process_command(line, should_close);
+
+            if (!response.empty()) {
+                send(client_fd, response.c_str(), response.size(), 0);
+            }
+
+            if (should_close) {
+                close(client_fd);
+                log_message("Client disconnected");
+                return;
+            }
+        }
     }
 
     close(client_fd);

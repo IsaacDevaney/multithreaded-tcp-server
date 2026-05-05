@@ -1,0 +1,1 @@
+Integration test result: PASSED - nc command responses matched expected output
