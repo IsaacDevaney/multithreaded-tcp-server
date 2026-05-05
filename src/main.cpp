@@ -20,6 +20,7 @@ using namespace std;
 
 unordered_map<string, string> store;
 mutex store_mutex;
+mutex cout_mutex;
 
 queue<int> client_queue;
 mutex queue_mutex;
@@ -27,6 +28,11 @@ condition_variable queue_cv;
 
 atomic<bool> server_running(true);
 int server_fd_global = -1;
+
+void log_message(const string& message) {
+    lock_guard<mutex> lock(cout_mutex);
+    cout << message << endl;
+}
 
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
