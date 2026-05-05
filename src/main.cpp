@@ -15,7 +15,8 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-
+#include <functional>
+#include "thread_pool.h"
 using namespace std;
 
 unordered_map<string, string> store;
