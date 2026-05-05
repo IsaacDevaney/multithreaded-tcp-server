@@ -2,7 +2,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
+#include <sstream>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -69,7 +69,27 @@ int main(int argc, char* argv[]) {
 
             cout << "Received: " << buffer;
 
-            send(client_fd, buffer, bytes_read, 0);
+            string line(buffer);
+            istringstream iss(line);
+
+            string command;
+            iss >> command;
+
+            string response;
+
+            if (command == "PING") {
+                response = "PONG\n";
+            }
+            else if (command == "QUIT") {
+                response = "BYE\n";
+                send(client_fd, response.c_str(), response.size(), 0);
+                break;
+            }
+            else {
+                response = "ERROR unknown command\n";
+            }
+
+            send(client_fd, response.c_str(), response.size(), 0);
         }
 
         close(client_fd);
