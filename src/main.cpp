@@ -2,12 +2,16 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <sstream>
+
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
+
+unordered_map<string, string> store;
 
 int main(int argc, char* argv[]) {
     int port = 8080;
@@ -42,7 +46,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    cout << "Echo server listening on port " << port << "...\n";
+    cout << "KV server listening on port " << port << "...\n";
 
     while (true) {
         sockaddr_in client_addr{};
@@ -66,19 +70,63 @@ int main(int argc, char* argv[]) {
             }
 
             buffer[bytes_read] = '\0';
-
             cout << "Received: " << buffer;
 
             string line(buffer);
             istringstream iss(line);
 
             string command;
-            iss >> command;
-
+            string key;
+            string value;
             string response;
 
-            if (command == "PING") {
-                response = "PONG\n";
+            iss >> command;
+
+            if (command == "SET") {
+                iss >> key;
+                getline(iss >> ws, value);
+
+                if (key.empty() || value.empty()) {
+                    response = "ERROR missing key or value\n";
+                } else {
+                    store[key] = value;
+                    response = "OK\n";
+                }
+            }
+            else if (command == "GET") {
+                iss >> key;
+
+                if (key.empty()) {
+                    response = "ERROR missing key\n";
+                } else {
+                    auto it = store.find(key);
+
+                    if (it == store.end()) {
+                        response = "NOT_FOUND\n";
+                    } else {
+                        response = "VALUE " + it->second + "\n";
+                    }
+                }
+            }
+            else if (command == "DELETE") {
+                iss >> key;
+
+                if (key.empty()) {
+                    response = "ERROR missing key\n";
+                } else if (store.erase(key) > 0) {
+                    response = "DELETED\n";
+                } else {
+                    response = "NOT_FOUND\n";
+                }
+            }
+            else if (command == "EXISTS") {
+                iss >> key;
+
+                if (key.empty()) {
+                    response = "ERROR missing key\n";
+                } else {
+                    response = store.count(key) ? "1\n" : "0\n";
+                }
             }
             else if (command == "QUIT") {
                 response = "BYE\n";
