@@ -2,27 +2,48 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
 #include <atomic>
+#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 using namespace std;
 
 unordered_map<string, string> store;
 mutex store_mutex;
+
+queue<int> client_queue;
+mutex queue_mutex;
+condition_variable queue_cv;
+
 atomic<bool> server_running(true);
 int server_fd_global = -1;
+
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        server_running = false;
+
+        if (server_fd_global != -1) {
+            close(server_fd_global);
+        }
+
+        queue_cv.notify_all();
+    }
+}
 
 void handle_client(int client_fd) {
     char buffer[1024];
 
-    while (true) {
+    while (server_running) {
         ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
 
         if (bytes_read <= 0) {
@@ -111,27 +132,53 @@ void handle_client(int client_fd) {
     close(client_fd);
     cout << "Client disconnected\n";
 }
-void handle_signal(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        server_running = false;
 
-        if (server_fd_global != -1) {
-            close(server_fd_global);
+void worker_loop(int worker_id) {
+    cout << "Worker " << worker_id << " started\n";
+
+    while (true) {
+        int client_fd;
+
+        {
+            unique_lock<mutex> lock(queue_mutex);
+
+            queue_cv.wait(lock, [] {
+                return !client_queue.empty() || !server_running;
+            });
+
+            if (!server_running && client_queue.empty()) {
+                break;
+            }
+
+            client_fd = client_queue.front();
+            client_queue.pop();
         }
 
-        cout << "\nShutdown signal received. Stopping server...\n";
+        cout << "Worker " << worker_id << " handling client\n";
+        handle_client(client_fd);
     }
+
+    cout << "Worker " << worker_id << " stopped\n";
 }
+
 int main(int argc, char* argv[]) {
-    int port = 8080;
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
+
+    int port = 8080;
+    int worker_count = 4;
+
     if (argc >= 2) {
         port = stoi(argv[1]);
     }
 
+    if (argc >= 3) {
+        worker_count = stoi(argv[2]);
+    }
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     server_fd_global = server_fd;
+
     if (server_fd < 0) {
         cerr << "socket() failed\n";
         return 1;
@@ -151,19 +198,27 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (listen(server_fd, 5) < 0) {
+    if (listen(server_fd, 10) < 0) {
         cerr << "listen() failed\n";
         close(server_fd);
         return 1;
     }
 
-    cout << "KV server listening on port " << port << "...\n";
+    vector<thread> workers;
+
+    for (int i = 0; i < worker_count; ++i) {
+        workers.emplace_back(worker_loop, i + 1);
+    }
+
+    cout << "KV server listening on port " << port << " with "
+         << worker_count << " worker threads...\n";
 
     while (server_running) {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
 
         int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+
         if (client_fd < 0) {
             if (!server_running) {
                 break;
@@ -173,13 +228,27 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        cout << "Client connected\n";
+        cout << "Client accepted\n";
 
-        thread client_thread(handle_client, client_fd);
-        client_thread.detach();
+        {
+            lock_guard<mutex> lock(queue_mutex);
+            client_queue.push(client_fd);
+        }
+
+        queue_cv.notify_one();
+    }
+
+    server_running = false;
+    queue_cv.notify_all();
+
+    for (thread& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
     }
 
     close(server_fd);
     cout << "Server stopped\n";
+
     return 0;
 }
