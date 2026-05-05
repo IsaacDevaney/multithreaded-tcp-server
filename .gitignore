@@ -29,4 +29,4 @@ protocol_tests
 .vscode/
 
 # OS files
-.DS_Store
+.DS_Storebuild-tsan/
