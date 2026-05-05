@@ -2,7 +2,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
+#include <atomic>
+#include <csignal>
 #include <cstring>
 #include <iostream>
 #include <mutex>
@@ -15,6 +16,8 @@ using namespace std;
 
 unordered_map<string, string> store;
 mutex store_mutex;
+atomic<bool> server_running(true);
+int server_fd_global = -1;
 
 void handle_client(int client_fd) {
     char buffer[1024];
@@ -108,15 +111,27 @@ void handle_client(int client_fd) {
     close(client_fd);
     cout << "Client disconnected\n";
 }
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        server_running = false;
 
+        if (server_fd_global != -1) {
+            close(server_fd_global);
+        }
+
+        cout << "\nShutdown signal received. Stopping server...\n";
+    }
+}
 int main(int argc, char* argv[]) {
     int port = 8080;
-
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
     if (argc >= 2) {
         port = stoi(argv[1]);
     }
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    server_fd_global = server_fd;
     if (server_fd < 0) {
         cerr << "socket() failed\n";
         return 1;
@@ -144,12 +159,16 @@ int main(int argc, char* argv[]) {
 
     cout << "KV server listening on port " << port << "...\n";
 
-    while (true) {
+    while (server_running) {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
 
         int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
         if (client_fd < 0) {
+            if (!server_running) {
+                break;
+            }
+
             cerr << "accept() failed\n";
             continue;
         }
@@ -161,5 +180,6 @@ int main(int argc, char* argv[]) {
     }
 
     close(server_fd);
+    cout << "Server stopped\n";
     return 0;
 }
