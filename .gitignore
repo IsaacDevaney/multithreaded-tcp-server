@@ -1,29 +1,32 @@
-# Build
+# Build directories
 build/
 cmake-build-*/
 
-# CMake
+# CMake generated files
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+CTestTestfile.cmake
+_deps/
+Testing/
 
-# Binaries
-*.out
+# Compiled objects/libraries
 *.o
+*.out
 *.a
 *.so
 
-# IDE
+# Local binaries
+server
+kv_server
+test_kv_store
+kv_store_tests
+protocol_tests
+
+# IDE files
 .idea/
 .vscode/
 
-# OS
+# OS files
 .DS_Store
-server
-server
-server
-server
-server
-test_kv_store
-server
