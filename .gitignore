@@ -22,3 +22,8 @@ Makefile
 .DS_Store
 server
 server
+server
+server
+server
+test_kv_store
+server
