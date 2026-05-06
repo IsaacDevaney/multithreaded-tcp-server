@@ -11,6 +11,7 @@ add_executable(kv_server
         src/kv_store.cpp
         src/client_handler.cpp
         src/logger.cpp
+        src/metrics.cpp
 )
 
 target_include_directories(kv_server PRIVATE include)
@@ -60,3 +61,4 @@ add_executable(load_client
 
 target_compile_options(load_client PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(load_client PRIVATE pthread)
+

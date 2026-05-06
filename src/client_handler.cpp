@@ -1,6 +1,7 @@
 #include "client_handler.h"
 #include "kv_store.h"
 #include "logger.h"
+#include "metrics.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -112,9 +113,15 @@ void handle_client(int client_fd) {
             string response = process_command(line, should_close);
 
             if (!response.empty()) {
-                send(client_fd, response.c_str(), response.size(), 0);
-            }
+                record_request();
 
+                ssize_t bytes_sent = send(client_fd, response.c_str(), response.size(), 0);
+
+                if (bytes_sent < 0) {
+                    log_message("send() failed while responding to client");
+                    break;
+                }
+            }
             if (should_close) {
                 close(client_fd);
                 log_message("Client disconnected");
