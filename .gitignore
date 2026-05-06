@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-tsan/
 cmake-build-*/
 
 # CMake generated files
@@ -11,22 +12,23 @@ CTestTestfile.cmake
 _deps/
 Testing/
 
+# Local binaries
+server
+kv_server
+kv_store_tests
+protocol_tests
+load_client
+test_kv_store
+
 # Compiled objects/libraries
 *.o
 *.out
 *.a
 *.so
 
-# Local binaries
-server
-kv_server
-test_kv_store
-kv_store_tests
-protocol_tests
-
 # IDE files
 .idea/
 .vscode/
 
 # OS files
-.DS_Storebuild-tsan/
+.DS_Store
